@@ -3,7 +3,7 @@
 Simple script to enumerate all images (jpg/jpeg) in a folder and its subfolders, and then change the modified/created date of the files to match the EXIF originally created date.
 
 ## Prerequisites
-you need to have `exiftool` installed on your system. In MocOs you can install it using `brew install exiftool`.
+you need to have `exiftool` installed on your system. In MacOS you can install it using `brew install exiftool`.
 
 ## Usage
 1. Clone the repository

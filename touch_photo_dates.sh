@@ -15,7 +15,7 @@ find "$1" -type f \( -iname "*.jpg" -o -iname "*.jpeg" \) \
   else
     echo "No DateTimeOriginal metadata found for: $file"
   fi
-done
+done 
 
 
 # do not echo everything

@@ -1,7 +1,18 @@
 #!/usr/bin/env zsh
 
+# Parse flags
+RENAME_MODE=false
+while getopts "r" opt; do
+  case $opt in
+    r) RENAME_MODE=true ;;
+    *) ;;
+  esac
+done
+shift $((OPTIND - 1))
+
 if [ -z "$1" ] || [ ! -d "$1" ]; then
-  echo "Usage: $0 <folder> [fallback_date]"
+  echo "Usage: $0 [-r] <folder> [fallback_date]"
+  echo "  -r:            Rename files with EXIF date prefix (YYYYMMDD_HHMMSS_filename.ext)"
   echo "  folder:        Directory containing images to process"
   echo "  fallback_date: Optional. Format: 'YYYYMMDD' (used when no EXIF date found)"
   echo "                 Time will be auto-generated ascending based on filename"
@@ -25,10 +36,11 @@ TIME_COUNTER=0
 find "$FOLDER" -type f \( -iname "*.jpg" -o -iname "*.jpeg" \) \
   ! -name '._*' | sort | while read -r file; do
   datetime=$(exiftool -s3 -DateTimeOriginal "$file")
+  
+  # Determine the datetime to use
+  USE_DATETIME=""
   if [ -n "$datetime" ]; then
-    formatted_date=$(date -j -f "%Y:%m:%d %H:%M:%S" "$datetime" "+%Y%m%d%H%M.%S")
-    touch -t "$formatted_date" "$file"
-    echo "Updated: $file -> $formatted_date"
+    USE_DATETIME="$datetime"
   elif [ -n "$FALLBACK_DATE" ]; then
     # Generate ascending time starting from 08:00:00, incrementing by 1 minute per file
     HOURS=$(( 8 + (TIME_COUNTER / 60) ))
@@ -43,10 +55,36 @@ find "$FOLDER" -type f \( -iname "*.jpg" -o -iname "*.jpeg" \) \
       SECONDS=59
     fi
     
-    GENERATED_TIME=$(printf "%02d%02d.%02d" $HOURS $MINUTES $SECONDS)
-    formatted_date="${FALLBACK_DATE}${GENERATED_TIME}"
+    USE_DATETIME=$(printf "%s %02d:%02d:%02d" \
+      "$(date -j -f "%Y%m%d" "$FALLBACK_DATE" "+%Y:%m:%d")" $HOURS $MINUTES $SECONDS)
+  fi
+  
+  if [ -n "$USE_DATETIME" ]; then
+    # Update file modification date
+    formatted_date=$(date -j -f "%Y:%m:%d %H:%M:%S" "$USE_DATETIME" "+%Y%m%d%H%M.%S")
     touch -t "$formatted_date" "$file"
-    echo "Updated (fallback): $file -> $formatted_date"
+    
+    if [ "$RENAME_MODE" = true ]; then
+      # Rename file with date prefix
+      dir=$(dirname "$file")
+      filename=$(basename "$file")
+      date_prefix=$(date -j -f "%Y:%m:%d %H:%M:%S" "$USE_DATETIME" "+%Y%m%d_%H%M%S")
+      
+      # Check if file already has the date prefix pattern
+      if [[ ! "$filename" =~ ^[0-9]{8}_[0-9]{6}_ ]]; then
+        new_filename="${date_prefix}_${filename}"
+        mv "$file" "${dir}/${new_filename}"
+        echo "Renamed: $file -> ${dir}/${new_filename}"
+      else
+        echo "Skipped (already prefixed): $file"
+      fi
+    else
+      if [ -n "$datetime" ]; then
+        echo "Updated: $file -> $formatted_date"
+      else
+        echo "Updated (fallback): $file -> $formatted_date"
+      fi
+    fi
   else
     echo "No DateTimeOriginal metadata found for: $file"
   fi

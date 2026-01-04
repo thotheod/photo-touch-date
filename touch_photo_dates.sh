@@ -2,17 +2,20 @@
 
 # Parse flags
 RENAME_MODE=false
-while getopts "r" opt; do
+LOG_MODE=false
+while getopts "rl" opt; do
   case $opt in
     r) RENAME_MODE=true ;;
+    l) LOG_MODE=true ;;
     *) ;;
   esac
 done
 shift $((OPTIND - 1))
 
 if [ -z "$1" ] || [ ! -d "$1" ]; then
-  echo "Usage: $0 [-r] <folder> [fallback_date]"
+  echo "Usage: $0 [-r] [-l] <folder> [fallback_date]"
   echo "  -r:            Rename files with EXIF date prefix (YYYYMMDD_HHMMSS_filename.ext)"
+  echo "  -l:            Enable detailed logging to terminal and log file"
   echo "  folder:        Directory containing images to process"
   echo "  fallback_date: Optional. Format: 'YYYYMMDD' (used when no EXIF date found)"
   echo "                 Time will be auto-generated ascending based on filename"
@@ -21,6 +24,20 @@ fi
 
 FOLDER="$1"
 FALLBACK_DATE="$2"
+
+# Setup logging
+LOG_FILE=""
+if [ "$LOG_MODE" = true ]; then
+  LOG_FILE="${FOLDER}/touch_photo_dates_$(date +%Y%m%d_%H%M%S).log"
+  echo "Logging to: $LOG_FILE"
+fi
+
+# Log function - writes to terminal and log file if LOG_MODE is enabled
+log_detail() {
+  if [ "$LOG_MODE" = true ]; then
+    echo "$1" | tee -a "$LOG_FILE"
+  fi
+}
 
 # Validate fallback date format if provided
 if [ -n "$FALLBACK_DATE" ]; then
@@ -33,8 +50,33 @@ fi
 # Counter for generating ascending times
 TIME_COUNTER=0
 
+# Counters for summary
+COUNT_EXIF=0
+COUNT_FILENAME=0
+COUNT_FALLBACK=0
+COUNT_SKIPPED=0
+COUNT_RENAMED=0
+COUNT_ALREADY_PREFIXED=0
+
+# Count total files first
+echo "Counting files..."
+TOTAL_FILES=$(find "$FOLDER" -type f \( -iname "*.jpg" -o -iname "*.jpeg" \) ! -name '._*' | wc -l | tr -d ' ')
+echo "Found $TOTAL_FILES files to process"
+log_detail "Found $TOTAL_FILES files to process"
+
+CURRENT_FILE=0
+PROGRESS_INTERVAL=10
+
 find "$FOLDER" -type f \( -iname "*.jpg" -o -iname "*.jpeg" \) \
   ! -name '._*' | sort | while read -r file; do
+  
+  CURRENT_FILE=$((CURRENT_FILE + 1))
+  
+  # Show progress every PROGRESS_INTERVAL files
+  if [ $((CURRENT_FILE % PROGRESS_INTERVAL)) -eq 0 ] || [ "$CURRENT_FILE" -eq 1 ]; then
+    echo "Processing file $CURRENT_FILE of $TOTAL_FILES..."
+  fi
+  
   datetime=$(exiftool -s3 -DateTimeOriginal "$file")
   
   # Determine the datetime to use
@@ -91,23 +133,58 @@ find "$FOLDER" -type f \( -iname "*.jpg" -o -iname "*.jpeg" \) \
       if [[ ! "$filename" =~ ^[0-9]{8}_[0-9]{6}_ ]]; then
         new_filename="${date_prefix}_${filename}"
         mv "$file" "${dir}/${new_filename}"
-        echo "Renamed: $file -> ${dir}/${new_filename}"
+        COUNT_RENAMED=$((COUNT_RENAMED + 1))
+        log_detail "Renamed: $file -> ${dir}/${new_filename}"
       else
-        echo "Skipped (already prefixed): $file"
+        COUNT_ALREADY_PREFIXED=$((COUNT_ALREADY_PREFIXED + 1))
+        log_detail "Skipped (already prefixed): $file"
       fi
     else
       case "$DATETIME_SOURCE" in
-        exif) echo "Updated (EXIF): $file -> $formatted_date" ;;
-        filename) echo "Updated (filename): $file -> $formatted_date" ;;
-        fallback) echo "Updated (fallback): $file -> $formatted_date" ;;
+        exif)
+          COUNT_EXIF=$((COUNT_EXIF + 1))
+          log_detail "Updated (EXIF): $file -> $formatted_date"
+          ;;
+        filename)
+          COUNT_FILENAME=$((COUNT_FILENAME + 1))
+          log_detail "Updated (filename): $file -> $formatted_date"
+          ;;
+        fallback)
+          COUNT_FALLBACK=$((COUNT_FALLBACK + 1))
+          log_detail "Updated (fallback): $file -> $formatted_date"
+          ;;
       esac
     fi
   else
-    echo "No DateTimeOriginal metadata found for: $file"
+    COUNT_SKIPPED=$((COUNT_SKIPPED + 1))
+    log_detail "Skipped (no date found): $file"
   fi
-done 
+  
+  # Write counters to temp file for access outside the loop
+  echo "$COUNT_EXIF $COUNT_FILENAME $COUNT_FALLBACK $COUNT_SKIPPED $COUNT_RENAMED $COUNT_ALREADY_PREFIXED" > /tmp/touch_photo_counters_$$
+done
 
+# Read final counters
+if [ -f /tmp/touch_photo_counters_$$ ]; then
+  read COUNT_EXIF COUNT_FILENAME COUNT_FALLBACK COUNT_SKIPPED COUNT_RENAMED COUNT_ALREADY_PREFIXED < /tmp/touch_photo_counters_$$
+  rm /tmp/touch_photo_counters_$$
+fi
 
-# do not echo everything
-# - keep counters and at then end write something like "Updated 10 files, skipped 5 files"
-# optional flag (i.e. -log) to log detailed output to a log file
+# Print summary
+echo ""
+echo "===== Summary ====="
+if [ "$RENAME_MODE" = true ]; then
+  echo "Renamed: $COUNT_RENAMED files"
+  echo "Already prefixed (skipped rename): $COUNT_ALREADY_PREFIXED files"
+else
+  echo "Updated with EXIF: $COUNT_EXIF files"
+  echo "Updated with filename pattern: $COUNT_FILENAME files"
+  echo "Updated with fallback date: $COUNT_FALLBACK files"
+fi
+echo "Skipped (no date found): $COUNT_SKIPPED files"
+echo "Total processed: $TOTAL_FILES files"
+
+if [ "$LOG_MODE" = true ]; then
+  echo ""
+  echo "Detailed log saved to: $LOG_FILE"
+fi

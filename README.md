@@ -2,6 +2,11 @@
 
 Simple script to enumerate all images (jpg/jpeg) in a folder and its subfolders, and then change the modified/created date of the files to match the EXIF originally created date.
 
+The script uses the following priority to determine the date:
+1. **EXIF DateTimeOriginal** - from image metadata
+2. **Filename pattern** - if filename matches `YYYYMMDD_HHMMSS_*` pattern
+3. **Fallback date** - user-provided date (if specified)
+
 ## Prerequisites
 you need to have `exiftool` installed on your system. In MacOS you can install it using `brew install exiftool`.
 

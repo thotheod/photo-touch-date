@@ -39,24 +39,41 @@ find "$FOLDER" -type f \( -iname "*.jpg" -o -iname "*.jpeg" \) \
   
   # Determine the datetime to use
   USE_DATETIME=""
+  DATETIME_SOURCE=""
+  
   if [ -n "$datetime" ]; then
     USE_DATETIME="$datetime"
-  elif [ -n "$FALLBACK_DATE" ]; then
-    # Generate ascending time starting from 08:00:00, incrementing by 1 minute per file
-    HOURS=$(( 8 + (TIME_COUNTER / 60) ))
-    MINUTES=$(( TIME_COUNTER % 60 ))
-    SECONDS=$(( (TIME_COUNTER * 7) % 60 ))  # Add some variation to seconds
-    TIME_COUNTER=$((TIME_COUNTER + 1))
-    
-    # Ensure we don't exceed 23:59:59
-    if [ $HOURS -gt 23 ]; then
-      HOURS=23
-      MINUTES=59
-      SECONDS=59
+    DATETIME_SOURCE="exif"
+  else
+    # Try to extract datetime from filename pattern YYYYMMDD_HHMMSS_*
+    filename=$(basename "$file")
+    if [[ "$filename" =~ ^([0-9]{4})([0-9]{2})([0-9]{2})_([0-9]{2})([0-9]{2})([0-9]{2})_ ]]; then
+      YEAR="${match[1]}"
+      MONTH="${match[2]}"
+      DAY="${match[3]}"
+      HOUR="${match[4]}"
+      MIN="${match[5]}"
+      SEC="${match[6]}"
+      USE_DATETIME="${YEAR}:${MONTH}:${DAY} ${HOUR}:${MIN}:${SEC}"
+      DATETIME_SOURCE="filename"
+    elif [ -n "$FALLBACK_DATE" ]; then
+      # Generate ascending time starting from 08:00:00, incrementing by 1 minute per file
+      HOURS=$(( 8 + (TIME_COUNTER / 60) ))
+      MINUTES=$(( TIME_COUNTER % 60 ))
+      SECONDS=$(( (TIME_COUNTER * 7) % 60 ))  # Add some variation to seconds
+      TIME_COUNTER=$((TIME_COUNTER + 1))
+      
+      # Ensure we don't exceed 23:59:59
+      if [ $HOURS -gt 23 ]; then
+        HOURS=23
+        MINUTES=59
+        SECONDS=59
+      fi
+      
+      USE_DATETIME=$(printf "%s %02d:%02d:%02d" \
+        "$(date -j -f "%Y%m%d" "$FALLBACK_DATE" "+%Y:%m:%d")" $HOURS $MINUTES $SECONDS)
+      DATETIME_SOURCE="fallback"
     fi
-    
-    USE_DATETIME=$(printf "%s %02d:%02d:%02d" \
-      "$(date -j -f "%Y%m%d" "$FALLBACK_DATE" "+%Y:%m:%d")" $HOURS $MINUTES $SECONDS)
   fi
   
   if [ -n "$USE_DATETIME" ]; then
@@ -79,11 +96,11 @@ find "$FOLDER" -type f \( -iname "*.jpg" -o -iname "*.jpeg" \) \
         echo "Skipped (already prefixed): $file"
       fi
     else
-      if [ -n "$datetime" ]; then
-        echo "Updated: $file -> $formatted_date"
-      else
-        echo "Updated (fallback): $file -> $formatted_date"
-      fi
+      case "$DATETIME_SOURCE" in
+        exif) echo "Updated (EXIF): $file -> $formatted_date" ;;
+        filename) echo "Updated (filename): $file -> $formatted_date" ;;
+        fallback) echo "Updated (fallback): $file -> $formatted_date" ;;
+      esac
     fi
   else
     echo "No DateTimeOriginal metadata found for: $file"

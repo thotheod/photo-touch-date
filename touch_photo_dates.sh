@@ -60,14 +60,14 @@ COUNT_ALREADY_PREFIXED=0
 
 # Count total files first
 echo "Counting files..."
-TOTAL_FILES=$(find "$FOLDER" -type f \( -iname "*.jpg" -o -iname "*.jpeg" \) ! -name '._*' | wc -l | tr -d ' ')
+TOTAL_FILES=$(find "$FOLDER" -type f \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.dng" \) ! -name '._*' | wc -l | tr -d ' ')
 echo "Found $TOTAL_FILES files to process"
 log_detail "Found $TOTAL_FILES files to process"
 
 CURRENT_FILE=0
 PROGRESS_INTERVAL=10
 
-find "$FOLDER" -type f \( -iname "*.jpg" -o -iname "*.jpeg" \) \
+find "$FOLDER" -type f \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.dng" \) \
   ! -name '._*' | sort | while read -r file; do
   
   CURRENT_FILE=$((CURRENT_FILE + 1))
